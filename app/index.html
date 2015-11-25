@@ -4,108 +4,8 @@
     <script src="orderedSet.js"></script>
     <script type="application/javascript">
 
-        var variableOrdering = {
-            compare: function(a, b) {
-                return a._id < b._id ? -1 : a._id > b._id ? 1 : 0;
-            },
-            equals: function(a, b) {
-                return a._name === b._name && a._id === b._id;
-            }
-        };
-
-        function ScopeVariable(name, id) {
-            this._name = name;
-            this._id = id;
-        }
-
-        ScopeVariable.prototype.toString = function() {
-            return this._name + "$" + this._id;
-        };
-
-        function ScopeEntry() {
-            this.localVariables = new OrderedSet(variableOrdering);
-            this.allVariables = new OrderedSet(variableOrdering);
-        }
-
-        ScopeEntry.prototype.makeChild = function() {
-            var result = new ScopeEntry();
-            result.allVariables = this.allVariables.clone();
-            return result;
-        };
-
-//        function Builder() {
-//            this._counter = 0;
-//            this._scopeStack = [new ScopeEntry()];
-//        }
-//
-//        Builder.prototype.allocVariable = function(name) {
-//            if (arguments.length === 0) {
-//                name = "temp";
-//            }
-//
-//            var head = this._scopeStack[this._scopeStack.length - 1];
-//            var variable = new ScopeVariable(name, this._counter);
-//            this._counter += 1;
-//            head.localVariables.add(variable);
-//            head.allVariables.add(variable);
-//            return variable;
-//        };
-//
-//        Builder.prototype.functionExpression = function(bodyBuilder) {
-//            return this._withScope(function() {
-//                var args = [];
-//                for (var i = 0; i < bodyBuilder.length; ++i) {
-//                    args.push(this.allocVariable("arg"));
-//                }
-//                var body = bodyBuilder.apply(this, args);
-//                return { type: 'functionExpression', arguments: args, body: body };
-//            });
-//        };
-//
-//        Builder.prototype._withScope = function(f) {
-//            this._scopeStack.push(this._scopeStack[this._scopeStack.length - 1].makeChild());
-//            try {
-//                return f.call(this);
-//            } finally {
-//                this._scopeStack.pop();
-//            }
-//        };
-//
-//        Builder.prototype.returnStatement = function(expr) {
-//            return { type: 'returnStatement', expression: expr };
-//        };
-//
-//        Builder.prototype.identifierReference = function(ident) {
-//            var head = this._scopeStack[this._scopeStack.length - 1];
-//            if (!head.allVariables.contains(ident)) {
-//                throw new Error("The identifier " + ident + " was not found in the current scope");
-//            }
-//            return { type: 'identifierReferenceExpression', identifier: ident };
-//        };
-//
-//        Builder.prototype.binaryExpression = function(op, left, right) {
-//            return { type: 'binaryExpression', operator: op, left: left, right: right };
-//        };
-//
-//        Builder.prototype.addExpression = function() {
-//            if (arguments.length < 1) {
-//                throw new Error("addExpression requires at least one argument");
-//            }
-//
-//            var expr = arguments[0];
-//            for (var i = 1; i < arguments.length; ++i) {
-//                expr = this.binaryExpression('+', expr, arguments[i]);
-//            }
-//            return expr;
-//        };
-//
-//        var bld = new Builder();
-//
-//        var result = bld.functionExpression(function(a, b, c) {
-//           return [
-//               bld.returnStatement(bld.addExpression(bld.identifierReference(a), bld.identifierReference(b), bld.identifierReference(c)))
-//           ];
-//        });
+        //https://github.com/estree/estree
+        //http://astexplorer.net/
 
         function cloneKeyset(obj) {
             var result = {};
@@ -117,23 +17,27 @@
             return result;
         }
 
-        var returnStatementType = 'returnStatement';
-        var varStatementType = 'varStatement';
-        var ifStatementType = 'ifStatement';
-        var exprStatementType = 'exprStatement';
-        var functionStatementType = 'functionStatement';
-        var binaryExpressionType = 'binaryExpression';
-        var numberLiteralExpressionType = 'numberLiteralExpression';
-        var stringLiteralExpressionType = 'stringLiteralExpression';
-        var functionExpressionType = 'functionExpression';
-        var functionCallExpressionType = 'functionCallExpression';
-        var identifierReferenceExpressionType = 'identifierReferenceExpression';
-        var ternaryExpressionType = 'ternaryExpression';
-        var assignmentExpressionType = 'assignmentExpression';
-        var memberAccessExpressionType = 'memberAccessExpression';
+        var identifierType = 'Identifier';
+        var literalType = 'Literal';
+
+        var expressionStatementType = 'ExpressionStatement';
+        var blockStatementType = 'BlockStatement';
+        var returnStatementType = 'ReturnStatement';
+        var ifStatementType = 'IfStatement';
+
+        var variableDeclaratorType = 'VariableDeclarator';
+        var variableDeclarationType = 'VariableDeclaration';
+        var functionDeclarationType = 'FunctionDeclaration';
+
+        var functionExpressionType = 'FunctionExpression';
+        var binaryExpressionType = 'BinaryExpression';
+        var assignmentExpressionType = 'AssignmentExpression';
+        var memberExpressionType = 'MemberExpression';
+        var conditionalExpressionType = 'ConditionalExpression';
+        var callExpressionType = 'CallExpression';
 
         function escapeJsString(string) {
-            return string.replace(/'"\\/, function(m) {
+            return string.replace(/'"\\/, function (m) {
                 switch (m) {
                     case "'":
                         return "\\'";
@@ -145,282 +49,428 @@
             });
         }
 
-        function collectIdentifiers(body, identifierSet) {
+        function isValidJsIdentifier(string) {
+            return /[a-zA-Z_$][a-zA-Z_$0-9]*/.test(string);
+        }
+
+        function collectPatternIdentifiers(pattern, fn) {
+            switch (pattern.type) {
+                case identifierType:
+                    fn(pattern.name);
+                    return;
+                default:
+                    throw new Error('Unknown pattern type ' + pattern.type);
+            }
+        }
+
+        function collectVarDeclaratorIdentifiers(declarators, state) {
+            for (var i = 0; i < declarators.length; ++i) {
+                collectPatternIdentifiers(declarators[i].id, function(name) { state.defineIdentifier(name); });
+            }
+        }
+
+        function collectStatementIdentifiers(stat, state) {
+            switch (stat.type) {
+                case blockStatementType:
+                    collectBlockIdentifiers(stat.body, state);
+                    return;
+                case functionDeclarationType:
+                    state.defineIdentifier(stat.id);
+                    return;
+                case variableDeclarationType:
+                    collectVarDeclaratorIdentifiers(stat.declarations, state);
+                    return;
+            }
+        }
+
+        function collectBlockIdentifiers(body, state) {
             for (var i = 0; i < body.length; ++i) {
                 var stat = body[i];
-                switch (stat.type) {
-                    case 'varStatement':
-                        identifierSet[stat.identifier] = true;
-                        break;
-                    case 'functionStatement':
-                        identifierSet[stat.identifier] = true;
-                        break;
-                }
+                collectStatementIdentifiers(stat, state);
             }
         }
 
-        function buildFunction(name, parameterNames, body, scopeStack, ioList) {
+        function buildPattern(pattern, state) {
+            switch (pattern.type) {
+                case identifierType:
+                    state.write(pattern.name);
+                    break;
+                default:
+                    throw new Error('Unknown pattern ' + pattern.type);
+            }
+        }
+
+        function buildFunction(id, params, body, state) {
             var i;
-            var innerScope = cloneKeyset(scopeStack[scopeStack.length - 1]);
-            for (i = 0; i < parameterNames.length; ++i) {
-                innerScope[parameterNames[i]] = true;
-            }
-            collectIdentifiers(body, innerScope);
-            scopeStack.push(innerScope);
-            try {
-                ioList.push('function');
-                if (name) {
-                    ioList.push(' ', name);
+            state.withFrame(function () {
+                for (i = 0; i < params.length; ++i) {
+                    collectPatternIdentifiers(params[i], function(name) {
+                        state.defineIdentifier(name)
+                    });
                 }
-                ioList.push('(');
-                for (i = 0; i < parameterNames.length; ++i) {
+                collectBlockIdentifiers(body.body, state);
+                state.write('function');
+                if (id !== null) {
+                    state.write(' ', id);
+                }
+                state.write('(');
+                for (i = 0; i < params.length; ++i) {
                     if (i > 0) {
-                        ioList.push(',');
+                        state.write(',');
                     }
-                    ioList.push(parameterNames[i]);
+                    buildPattern(params[i], state);
                 }
-                ioList.push('){');
-                for (i = 0; i < body.length; ++i) {
-                    buildStatement(body[i], scopeStack, ioList);
-                }
-                ioList.push('}');
-            } finally {
-                scopeStack.pop();
-            }
+                state.write(')');
+                buildBlockStatement(body.body, state);
+            });
         }
 
-        function buildFunctionCallExpression(functionExpr, args, scopeStack, ioList) {
-            ioList.push('(');
-            buildExpression(functionExpr, scopeStack, ioList);
-            ioList.push(')(');
+        function buildCallExpression(callee, args, state) {
+            state.write('(');
+            buildExpression(callee, state);
+            state.write(')(');
             for (var i = 0; i < args.length; ++i) {
                 if (i > 0) {
-                    ioList.push(',');
+                    state.write(',');
                 }
-                buildExpression(args[i], scopeStack, ioList);
+                buildExpression(args[i], state);
             }
-            ioList.push(')');
+            state.write(')');
         }
 
-        function buildStatements(statements, scopeStack, ioList) {
-            for (var i = 0; i < statements.length; ++i) {
-                buildStatement(statements[i], scopeStack, ioList);
-                ioList.push(';');
+        function buildBlockStatement(body, state) {
+            var i;
+            state.write('{');
+            for (i = 0; i < body.length; ++i) {
+                buildStatement(body[i], state);
+            }
+            state.write('}');
+        }
+
+        function buildVariableDeclaration(declarations, state) {
+            state.write('var ');
+            for (var i = 0; i < declarations.length; ++i) {
+                if (i !== 0) {
+                    state.write(',');
+                }
+                buildVariableDeclarator(declarations[i], state);
+            }
+            state.write(';');
+        }
+
+        function buildVariableDeclarator(variableDeclarator, state) {
+            buildPattern(variableDeclarator.id, state);
+            if (variableDeclarator.init !== null) {
+                state.write('=');
+                buildExpression(variableDeclarator.init, state);
             }
         }
 
-        function buildStatement(stat, scopeStack, ioList) {
+        function buildStatement(stat, state) {
             switch (stat.type) {
-                case returnStatementType:
-                    ioList.push('return ');
-                    buildExpression(stat.expression, scopeStack, ioList);
-                    ioList.push(';');
+                case expressionStatementType:
+                    buildExpression(stat.expression, state);
+                    state.write(';');
                     return;
-                case varStatementType:
-                    ioList.push('var ', stat.identifier);
-                    if (stat.expression) {
-                        ioList.push('=');
-                        buildExpression(stat.expression, scopeStack, ioList);
-                    }
-                    ioList.push(';');
+                case blockStatementType:
+                    buildBlockStatement(stat.body, state);
+                    return;
+                case returnStatementType:
+                    state.write('return ');
+                    buildExpression(stat.argument, state);
+                    state.write(';');
                     return;
                 case ifStatementType:
-                    ioList.push('if(');
-                    buildExpression(stat.testExpression, scopeStack, ioList);
-                    ioList.push('){');
-                    buildStatements(stat.trueBody, scopeStack, ioList);
-                    ioList.push('}');
-                    if (stat.falseBody) {
-                        ioList.push('else{');
-                        buildStatements(stat.falseBody, scopeStack, ioList);
+                    state.write('if(');
+                    buildExpression(stat.test, state);
+                    state.write(')');
+                    buildStatement(stat.consequent, state);
+                    if (stat.alternate) {
+                        state.write(' else ');
+                        buildStatement(stat.alternate, state);
                     }
                     return;
-                case functionStatementType:
-                    buildFunction(stat.identifier, stat.parameterNames, stat.body, scopeStack, ioList);
+                case functionDeclarationType:
+                    buildFunction(stat.id, stat.params, stat.body, state);
                     return;
-                case exprStatementType:
-                    buildExpression(stat.expression, scopeStack, ioList);
-                    ioList.push(';');
+                case variableDeclarationType:
+                    buildVariableDeclaration(stat.declarations, state);
                     return;
+                default:
+                    throw new Error('Unknown statement ' + stat.type);
             }
         }
 
-        function buildExpression(expr, scopeStack, ioList) {
+        function buildStatements(statements, state) {
+            for (var i = 0; i < statements.length; ++i) {
+                buildStatement(statements[i], state);
+                state.write(';');
+            }
+        }
+
+        function buildExpression(expr, state) {
             switch (expr.type) {
-                case binaryExpressionType:
-                    ioList.push('(');
-                    buildExpression(expr.left, scopeStack, ioList);
-                    ioList.push(')', expr.operator, '(');
-                    buildExpression(expr.right, scopeStack, ioList);
-                    ioList.push(')');
-                    return;
-                case numberLiteralExpressionType:
-                    ioList.push(expr.value.toString());
-                    return;
-                case stringLiteralExpressionType:
-                    ioList.push('"', escapeJsString(expr.value), '"');
-                    return;
-                case functionExpressionType:
-                    buildFunction('', expr.parameterNames, expr.body, scopeStack, ioList);
-                    return;
-                case functionCallExpressionType:
-                    buildFunctionCallExpression(expr.functionExpr, expr.arguments, scopeStack, ioList);
-                    return;
-                case identifierReferenceExpressionType:
-                    if (!scopeStack[scopeStack.length - 1].hasOwnProperty(expr.identifier)) {
-                        throw new Error('The identifier ' + expr.identifier + ' is not defined in this scope.');
+                case identifierType:
+                    if (!state.isIdentifierDefined(expr.name)) {
+                        throw new Error('The identifier ' + expr.name + ' is not defined in this scope.');
                     }
-                    ioList.push(expr.identifier);
+                    state.write(expr.name);
                     return;
-                case memberAccessExpressionType:
-                    ioList.push('(');
-                    buildExpression(expr.objectExpression, scopeStack, ioList);
-                    ioList.push(')[');
-                    buildExpression(expr.memberExpression, scopeStack, ioList);
-                    ioList.push(']');
+                case literalType:
+                    if (expr.value === null) {
+                        state.write('null');
+                        return;
+                    }
+                    switch (typeof(expr.value)) {
+                        case 'string':
+                            state.write('"', escapeJsString(expr.value), '"');
+                            return;
+                        case 'number':
+                            state.write(expr.value.toString());
+                            return;
+                        default:
+                            throw new Error('Unknown literal value type ' + typeof(expr.value));
+                    }
+                case functionExpressionType:
+                    buildFunction(expr.id, expr.params, expr.body, state);
                     return;
-                case ternaryExpressionType:
-                    ioList.push('((');
-                    buildExpression(expr.testExpression, scopeStack, ioList);
-                    ioList.push(')?(');
-                    buildExpression(expr.trueExpression, scopeStack, ioList);
-                    ioList.push('):(');
-                    buildExpression(expr.falseExpression, scopeStack, ioList);
-                    ioList.push('))');
+                case binaryExpressionType:
+                    state.write('(');
+                    buildExpression(expr.left, state);
+                    state.write(')', expr.operator, '(');
+                    buildExpression(expr.right, state);
+                    state.write(')');
                     return;
                 case assignmentExpressionType:
-                    if (!scopeStack[scopeStack.length - 1].hasOwnProperty(expr.identifier)) {
-                        throw new Error('The identifier ' + expr.identifier + ' is not defined in this scope.');
-                    }
-                    ioList.push(expr.identifier, '=');
-                    buildExpression(expr.expression, scopeStack, ioList);
+                    collectPatternIdentifiers(expr.left, function (id) {
+                        if (!state.isIdentifierDefined(id)) {
+                            throw new Error('The identifier ' + id + ' is not defined in this scope.');
+                        }
+                    });
+                    buildPattern(expr.left, state);
+                    state.write(expr.operator);
+                    buildExpression(expr.right, state);
                     return;
+                case memberExpressionType:
+                    state.write('(');
+                    buildExpression(expr.object, state);
+                    state.write(')');
+                    if (expr.computed) {
+                        state.write('[');
+                        buildExpression(expr.property, state);
+                        state.write(']');
+                    } else {
+                        state.write('.', expr.property.name);
+                    }
+                    return;
+                case functionExpressionType:
+                    buildFunction(expr.id, expr.params, expr.body, state);
+                    return;
+                case conditionalExpressionType:
+                    state.write('((');
+                    buildExpression(expr.test, state);
+                    state.write(')?(');
+                    buildExpression(expr.consequent, state);
+                    state.write('):(');
+                    buildExpression(expr.alternate, state);
+                    state.write('))');
+                    return;
+                case callExpressionType:
+                    buildCallExpression(expr.callee, expr.arguments, state);
+                    return;
+                default:
+                    throw new Error('Unknown expression ' + expr.type);
             }
         }
 
         function build(expr, predefinedIdentifiers) {
-            var initialScope = { };
+            var initialScope = {};
             if (arguments.length === 2) {
                 for (var i = 0; i < predefinedIdentifiers.length; ++i) {
                     initialScope[predefinedIdentifiers[i]] = true;
                 }
             }
             var ioList = [];
-            buildExpression(expr, [initialScope], ioList);
+            var scopeStack = [initialScope];
+            var currentFrame = initialScope;
+            var state = {
+                _scopeStack: scopeStack,
+                _ioList: ioList,
+                write: function () {
+                    ioList.push.apply(ioList, arguments);
+                },
+                withFrame: function (f) {
+                    var innerScope = cloneKeyset(currentFrame);
+                    scopeStack.push(innerScope);
+                    currentFrame = innerScope;
+                    try {
+                        f();
+                    } finally {
+                        scopeStack.pop();
+                        currentFrame = scopeStack[scopeStack.length - 1];
+                    }
+                },
+                defineIdentifier: function (id) {
+                    currentFrame[id] = true;
+                },
+                isIdentifierDefined: function (id) {
+                    return currentFrame.hasOwnProperty(id);
+                }
+            };
+            buildExpression(expr, state);
             var str = '(' + ioList.join('') + ')';
             return eval(str);
         }
 
-        function varStatement(identifier, expression) {
+        function identifier(name) {
             return {
-                type: varStatementType,
-                identifier: identifier,
+                type: identifierType,
+                range: null,
+                name: name
+            };
+        }
+
+        function literal(value) {
+            return {
+                type: literalType,
+                range: null,
+                value: value
+            };
+        }
+
+        function expressionStatement(expression) {
+            return {
+                type: expressionStatementType,
+                range: null,
                 expression: expression
             };
         }
 
-        function ifStatement(testExpr, trueBody, falseBody) {
+        function blockStatement(body) {
             return {
-                type: ifStatementType,
-                testExpression: testExpr,
-                trueBody: trueBody,
-                falseBody: falseBody
-            };
-        }
-
-        function functionStatement(identifier, parameterNames, body) {
-            return {
-                type: functionStatementType,
-                identifier: identifier,
-                parameterNames: parameterNames,
+                type: blockStatementType,
+                range: null,
                 body: body
             };
         }
 
-        function returnStatement(expression) {
+        function returnStatement(argument) {
             return {
                 type: returnStatementType,
-                expression: expression
+                range: null,
+                argument: argument
             };
         }
 
-        function exprStatement(expression) {
+        function ifStatement(test, consequent, alternate) {
             return {
-                type: exprStatementType,
-                expression: expression
+                type: ifStatementType,
+                range: null,
+                test: test,
+                consequent: consequent,
+                alternate: alternate
             };
         }
 
-        function functionExpression(parameterNames, body) {
+
+        function variableDeclarator(id, init) {
             return {
-                type: functionExpressionType,
-                parameterNames: parameterNames,
+                type: variableDeclaratorType,
+                range: null,
+                id: id,
+                init: init
+            };
+        }
+
+        function variableDeclaration(declarations) {
+            return {
+                type: variableDeclarationType,
+                range: null,
+                declarations: declarations,
+                kind: 'var'
+            };
+        }
+
+        function functionDeclaration(id, params, body) {
+            return {
+                type: functionDeclarationType,
+                range: null,
+                id: id,
+                params: params,
                 body: body
             };
         }
 
-        function functionCallExpression(functionExpr, args) {
+
+        function functionExpression(id, params, body) {
             return {
-                type: functionCallExpressionType,
-                functionExpr: functionExpr,
-                arguments: args
+                type: functionExpressionType,
+                range: null,
+                id: id,
+                params: params,
+                body: body
             };
         }
 
-        function numberLiteralExpression(value) {
-            return {
-                type: numberLiteralExpressionType,
-                value: value
-            };
-        }
-
-        function stringLiteralExpression(value) {
-            return {
-                type: stringLiteralExpressionType,
-                value: value
-            };
-        }
-
-        function identifierReferenceExpression(identifier) {
-            return {
-                type: identifierReferenceExpressionType,
-                identifier: identifier
-            };
-        }
-
-        function binaryExpression(operator, left, right) {
+        function binaryExpression(left, operator, right) {
             return {
                 type: binaryExpressionType,
+                range: null,
                 operator: operator,
                 left: left,
                 right: right
             };
         }
 
-        function assignmentExpression(identifier, expression) {
+        function assignmentExpression(left, operator, right) {
             return {
                 type: assignmentExpressionType,
-                identifier: identifier,
-                expression: expression
+                range: null,
+                operator: operator,
+                left: left,
+                right: right
             };
         }
 
-        function memberAccessExpression(objectExpression, memberExpression) {
+        function staticMemberExpression(object, property) {
             return {
-                type: memberAccessExpressionType,
-                objectExpression: objectExpression,
-                memberExpression: memberExpression
+                type: memberExpressionType,
+                range: null,
+                object: object,
+                property: property,
+                computed: false
             };
         }
 
-        function ternaryExpression(testExpression, trueExpression, falseExpression) {
+        function computedMemberExpression(object, property) {
             return {
-                type: ternaryExpressionType,
-                testExpression: testExpression,
-                trueExpression: trueExpression,
-                falseExpression: falseExpression
+                type: memberExpressionType,
+                range: null,
+                object: object,
+                property: property,
+                computed: true
             };
         }
+
+        function conditionalExpression(test, consequent, alternate) {
+            return {
+                type: conditionalExpressionType,
+                range: null,
+                test: test,
+                consequent: consequent,
+                alternate: alternate
+            };
+        }
+
+        function callExpression(callee, args) {
+            return {
+                type: callExpressionType,
+                range: null,
+                callee: callee,
+                arguments: args
+            };
+        }
+
 
         function binaryOperatorChain(name, operator, args) {
             if (args.length === 0) {
@@ -429,7 +479,7 @@
 
             var expr = args[0];
             for (var i = 1; i < args.length; ++i) {
-                expr = binaryExpression(operator, expr, args[i]);
+                expr = binaryExpression(expr, operator, args[i]);
             }
 
             return expr;
@@ -446,22 +496,35 @@
         function memberAccessChain(objectExpr) {
             var result = objectExpr;
             for (var i = 1; i < arguments.length; ++i) {
-                result = memberAccessExpression(result, stringLiteralExpression(arguments[i]));
+                if (isValidJsIdentifier(arguments[i])) {
+                    result = staticMemberExpression(result, identifier(arguments[i]));
+                } else {
+                    result = computedMemberExpression(result, literal(arguments[i]))
+                }
             }
             return result;
         }
 
-        var expr = functionExpression(['a', 'b'],
-            [
-                varStatement('p'),
-                functionStatement('foo', ['x', 'y'], [returnStatement(addExpression(identifierReferenceExpression('x'), identifierReferenceExpression('y')))]),
-                varStatement('q', numberLiteralExpression(42)),
-                exprStatement(assignmentExpression('p', assignmentExpression('q', numberLiteralExpression(7)))),
-                exprStatement(functionCallExpression(memberAccessChain(identifierReferenceExpression('window'), 'console', 'log'), [stringLiteralExpression('message')])),
-                returnStatement(multiplyExpression(
-                        addExpression(identifierReferenceExpression('a'), identifierReferenceExpression('b')),
-                        functionCallExpression(identifierReferenceExpression('foo'), [identifierReferenceExpression('q'), identifierReferenceExpression('p')])))
-            ]
+        var expr = functionExpression(
+                null,
+                [identifier('a'), identifier('b')],
+                blockStatement([
+                    variableDeclaration([variableDeclarator(identifier('p'), null)]),
+                    functionDeclaration(
+                            'foo',
+                            [identifier('x'), identifier('y')],
+                            blockStatement([
+                                returnStatement(addExpression(identifier('x'), identifier('y')))
+                            ])),
+                    variableDeclaration([variableDeclarator(identifier('q'), literal(42))]),
+                    expressionStatement(assignmentExpression(identifier('p'), '=', assignmentExpression(identifier('q'), '=', literal(7)))),
+                    expressionStatement(callExpression(memberAccessChain(identifier('window'), 'console', 'log'), [literal('message')])),
+                    ifStatement(identifier('p'), blockStatement([expressionStatement(assignmentExpression(identifier('p'), '=', literal(99)))])),
+                    ifStatement(identifier('p'), expressionStatement(callExpression(identifier('foo'), [identifier('p'), identifier('p')])), returnStatement(literal(null))),
+                    returnStatement(multiplyExpression(
+                            addExpression(identifier('a'), identifier('b')),
+                            callExpression(identifier('foo'), [identifier('q'), identifier('p')])))
+                ])
         );
 
         var result = build(expr, ['window']);
